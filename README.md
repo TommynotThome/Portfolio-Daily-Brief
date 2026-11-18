@@ -24,8 +24,8 @@
 ## 快速开始
 
 ```bash
-git clone <this-repo>
-cd portfolio-daily-brief
+git clone https://github.com/TommynotThome/Portfolio-Daily-Brief.git
+cd Portfolio-Daily-Brief
 
 cp portfolio.example.json portfolio.json   # 改成你自己的持仓与现金
 python gen_daily.py                        # 抓行情 → daily_data.json + chart.svg
