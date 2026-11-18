@@ -1,0 +1,77 @@
+  /* ===== K 线弹层（持仓表点击展开，日/周/月/年） ===== */
+  tr.krow { cursor: pointer; }
+  tr.krow:hover td { background: #eef4fb; }
+  .kbug { display: inline-block; font-size: 9.5px; line-height: 1.55; padding: 0 5px; border-radius: 4px;
+          background: #e6f1fb; color: #185fa5; margin-left: 5px; vertical-align: 1px; letter-spacing: .3px; }
+  .khint { font-size: 12px; color: #8b929c; margin: 6px 0 0; }
+  .kmask { display: none; position: fixed; inset: 0; background: rgba(15,20,26,.55); z-index: 999;
+           align-items: center; justify-content: center; padding: 22px; }
+  .kmask.on { display: flex; }
+  .kbox { background: #fff; border-radius: 14px; width: 100%; max-width: 960px; max-height: 92vh;
+          overflow: auto; padding: 18px 22px 14px; box-shadow: 0 18px 50px rgba(0,0,0,.3); }
+  .khead { display: flex; align-items: center; gap: 11px; flex-wrap: wrap; }
+  .khead h3 { font-size: 17px; margin: 0; font-weight: 600; }
+  .khead .ksub { font-size: 11.5px; color: #8b929c; }
+  .ktabs { display: flex; gap: 3px; background: #f2f5f8; padding: 3px; border-radius: 9px; }
+  .ktabs button { border: 0; background: transparent; font: inherit; font-size: 12.5px; padding: 4px 14px;
+                  border-radius: 7px; cursor: pointer; color: #5b6470; }
+  .ktabs button.on { background: #fff; color: #185fa5; font-weight: 600; box-shadow: 0 1px 3px rgba(0,0,0,.1); }
+  .kx { margin-left: auto; border: 0; background: #f2f5f8; width: 28px; height: 28px; border-radius: 50%;
+        cursor: pointer; font-size: 13px; color: #6b7280; line-height: 1; }
+  .kx:hover { background: #e6eaee; }
+  #kcv { width: 100%; height: 380px; display: block; touch-action: none; }
+  .kinfo { display: flex; flex-wrap: wrap; gap: 15px; font-size: 12.5px; color: #4a5058;
+           padding: 7px 2px 0; font-variant-numeric: tabular-nums; min-height: 21px; }
+  .kinfo b { color: #1f2328; }
+  .klg { display: flex; flex-wrap: wrap; gap: 13px; font-size: 11.5px; color: #8b929c; margin-top: 4px; align-items: center; }
+  .klg .sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+  .klg span { display: flex; align-items: center; gap: 4px; }
+  .knote { font-size: 11.5px; color: #8b929c; margin-top: 9px; padding-top: 9px; border-top: 1px solid #edf0f3; }
+
+  /* ===== 画线工具条 ===== */
+  .kdraw { margin: 8px 0 0; }
+  .kdtools, .kdctx { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+  .kdtools { padding: 5px; background: #f7f9fb; border: 1px solid #e8edf2; border-radius: 9px; }
+  .kdctx { margin-top: 5px; gap: 6px; }
+  .ktb { border: 1px solid transparent; background: #fff; color: #46505c; font: inherit; font-size: 11.5px;
+         padding: 3px 9px; border-radius: 6px; cursor: pointer; line-height: 1.5; white-space: nowrap; }
+  .ktb:hover { background: #eef4fb; border-color: #d5e3f2; }
+  .ktb.on { background: #185fa5; color: #fff; border-color: #185fa5; font-weight: 600; }
+  .ktb.sm { font-size: 11px; padding: 2px 7px; border-color: #e3e9ef; }
+  .kdg { font-size: 10px; color: #98a0aa; padding: 0 3px 0 5px; letter-spacing: .5px; }
+  .kdg2 { font-size: 10.5px; color: #8b929c; }
+  .kdsep { width: 1px; height: 16px; background: #dde4eb; margin: 0 4px; }
+  .kdsw { display: flex; align-items: center; gap: 4px; font-size: 11px; color: #5b6470; cursor: pointer; }
+  .kdsw input { margin: 0; }
+  .kdcount { font-size: 10.5px; color: #98a0aa; margin-left: auto; }
+  .kdb { font-size: 10.5px; color: #8b929c; background: #f2f5f8; border-radius: 10px; padding: 1px 8px; }
+  .kdb.hot { background: #FDF3F2; color: #C0392B; font-weight: 600; }
+
+  /* 选中对象后的样式面板 */
+  .kdstyle { display: none; flex-wrap: wrap; align-items: center; gap: 7px; margin-top: 6px;
+             padding: 7px 9px; background: #fff; border: 1px solid #d5e3f2; border-radius: 9px;
+             box-shadow: 0 2px 8px rgba(24,95,165,.08); }
+  .kdstyle.on { display: flex; }
+  .kdsw2 { display: flex; gap: 3px; }
+  .kdc { width: 15px; height: 15px; border-radius: 4px; cursor: pointer; display: inline-block;
+         border: 2px solid transparent; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+  .kdc.on { border-color: #185fa5; }
+  .kdseg { display: inline-flex; border: 1px solid #e3e9ef; border-radius: 6px; overflow: hidden; }
+  .kdseg button { border: 0; background: #fff; font: inherit; font-size: 10.5px; padding: 2px 7px;
+                  cursor: pointer; color: #5b6470; border-right: 1px solid #eef2f6; }
+  .kdseg button:last-child { border-right: 0; }
+  .kdseg button.on { background: #185fa5; color: #fff; }
+  .kdseg button.danger { color: #C0392B; }
+  .kdin { font: inherit; font-size: 11.5px; padding: 3px 7px; border: 1px solid #dde4eb;
+          border-radius: 6px; width: 120px; color: #1f2328; }
+  select#kdpat { font: inherit; font-size: 11px; padding: 2px 5px; border: 1px solid #dde4eb; border-radius: 6px; }
+
+  /* 图表 + 画线叠加层 */
+  .kwrap { position: relative; margin-top: 6px; }
+  #kov { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; touch-action: none; }
+  #kov .kobj { pointer-events: all; cursor: pointer; }
+  #kov .kh { pointer-events: all; }
+  .kdinline { position: absolute; z-index: 5; font: inherit; font-size: 12px; padding: 3px 7px;
+              border: 1px solid #185fa5; border-radius: 5px; outline: none; width: 150px;
+              box-shadow: 0 4px 14px rgba(24,95,165,.22); }
+  @media (max-width: 640px) { #kcv { height: 290px; } .kbox { padding: 14px 12px 10px; } }

@@ -1,0 +1,1130 @@
+<div class="kmask" id="kmask">
+  <div class="kbox" id="kbox">
+    <div class="khead">
+      <h3 id="ktitle">—</h3>
+      <span class="ksub" id="ksub"></span>
+      <div class="ktabs" id="ktabs">
+        <button type="button" data-p="d" class="on">日</button>
+        <button type="button" data-p="w">周</button>
+        <button type="button" data-p="m">月</button>
+        <button type="button" data-p="y">年</button>
+      </div>
+      <button type="button" class="kx" id="kx" title="关闭（Esc）">✕</button>
+    </div>
+    <div class="kinfo" id="kinfo"></div>
+
+    <div class="kdraw" id="kdraw">
+      <div class="kdtools" id="kdtools"></div>
+      <div class="kdctx" id="kdctx"></div>
+      <div class="kdstyle" id="kdstyle"></div>
+    </div>
+
+    <div class="kwrap">
+      <canvas id="kcv"></canvas>
+      <svg id="kov" xmlns="http://www.w3.org/2000/svg"></svg>
+    </div>
+
+    <div class="klg">
+      <span><i class="sw" style="background:#C0392B"></i>收涨</span>
+      <span><i class="sw" style="background:#1D9E75"></i>收跌</span>
+      <span><i class="sw" style="background:#E67E22"></i>MA5</span>
+      <span><i class="sw" style="background:#185FA5"></i>MA20</span>
+      <span id="kwin" style="margin-left:auto;color:#6b7280"></span>
+    </div>
+    <div class="knote">数据源：<b>CBOE 官方历史行情</b>（免密钥延迟报价）。红涨绿跌为中文市场惯例；周/月/年由日线合成（开=期内首开、高=期内最高、低=期内最低、收=期内末收）。<span id="klivenote"></span><br>
+      <b>画线怎么用：</b>① 选工具 → 在图上点（趋势/通道等需点 2–3 下，多点是自动完成）→ 完成后自动选中，上方出现样式面板；② <b>选择</b>工具下点击图形可选中，拖蓝点改锚点、拖线身整体移动，双击可改文字，Del 删除，Ctrl+Z 撤销；③ 快捷键 <code>V</code> 选择 <code>T</code> 趋势 <code>R</code> 射线 <code>H</code> 水平 <code>N</code> 垂直 <code>C</code> 通道 <code>F</code> 回撤 <code>M</code> 测量 <code>A</code> 箭头，Esc 逐级退出。<br>
+      <b>保存范围：</b>按「标的＋周期」存在<b>本机浏览器</b>，换标的/周期互不干扰；水平线可勾「跨周期显示」在四个周期通用。换浏览器或换打开地址（本地文件 / 资料库链接）storage 不互通，需要迁移时用<b>导出 / 导入 JSON</b>。</div>
+  </div>
+</div>
+<script>
+(function () {
+  var KD = /*KLINE_DATA*/;
+
+  /* ==================== 基础状态 ==================== */
+  var sym = null, per = 'd', bars = [], hover = -1;
+  var RED = '#C0392B', GRN = '#1D9E75', MA5C = '#E67E22', MA20C = '#185FA5';
+  var cv = document.getElementById('kcv');
+  var ctx = cv.getContext('2d');
+  var svg = document.getElementById('kov');
+  var mask = document.getElementById('kmask');
+  var titleEl = document.getElementById('ktitle');
+  var subEl = document.getElementById('ksub');
+  var infoEl = document.getElementById('kinfo');
+  var winEl = document.getElementById('kwin');
+  var tabs = document.getElementById('ktabs');
+  var liveNote = document.getElementById('klivenote');
+  var toolsEl = document.getElementById('kdtools');
+  var ctxEl = document.getElementById('kdctx');
+  var styleEl = document.getElementById('kdstyle');
+
+  var GEO = { pL: 10, pR: 66, pT: 12, pB: 24 };
+  var V = { w: 0, h: 0, pw: 0, ph: 0, lo: 0, hi: 0, n: 0 };
+  var DM = {};   /* date -> index */
+
+  /* ==================== 坐标换算 ==================== */
+  function vX(i) { return GEO.pL + (i + 0.5) * V.pw / V.n; }
+  function vY(p) { return GEO.pT + (V.hi - p) / (V.hi - V.lo) * V.ph; }
+  function vIx(x) { return (x - GEO.pL) / V.pw * V.n - 0.5; }
+  function vPy(y) { return V.hi - (y - GEO.pT) / V.ph * (V.hi - V.lo); }
+  function chk(x, a, b) { return x < a ? a : (x > b ? b : x); }
+
+  /* ==================== 数值格式 ==================== */
+  function f2(x) { return (Math.abs(x) >= 100 ? x.toFixed(2) : x.toFixed(2)); }
+  function fp(x) { return (x >= 0 ? '+' : '') + x.toFixed(2); }
+  function fpc(x) { return (x >= 0 ? '+' : '') + x.toFixed(2) + '%'; }
+  function esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+      return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c];
+    });
+  }
+  function hexA(h, a) {
+    var m = /^#?([0-9a-f]{2})([0-9a-f]{2})([0-9a-f]{2})$/i.exec(h);
+    if (!m) return 'rgba(24,95,165,' + a + ')';
+    return 'rgba(' + parseInt(m[1], 16) + ',' + parseInt(m[2], 16) + ',' + parseInt(m[3], 16) + ',' + a + ')';
+  }
+  function fmtDate(t, p) {
+    if (p === 'd' || p === 'w') return '20' + t.slice(0, 2) + '-' + t.slice(2, 4) + '-' + t.slice(4, 6);
+    if (p === 'm') return t.slice(0, 4) + '-' + t.slice(4, 6);
+    return t + ' 年';
+  }
+  function axisDate(t, p) {
+    if (p === 'd') return t.slice(2, 4) + '/' + t.slice(4, 6);
+    if (p === 'w') return t.slice(0, 2) + '/' + t.slice(2, 4);
+    if (p === 'm') return t.slice(0, 4) + '/' + t.slice(4, 6);
+    return t;
+  }
+
+  /* ==================== K 线绘制（原逻辑） ==================== */
+  function ma(n, i) {
+    if (i < n - 1) return null;
+    var s = 0;
+    for (var k = i - n + 1; k <= i; k++) s += bars[k][4];
+    return s / n;
+  }
+  function layout() {
+    var dpr = window.devicePixelRatio || 1;
+    var w = cv.clientWidth || 860, h = cv.clientHeight || 380;
+    cv.width = Math.round(w * dpr); cv.height = Math.round(h * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    return { w: w, h: h };
+  }
+
+  function draw() {
+    if (!bars.length) return;
+    var L = layout(), W = L.w, H = L.h;
+    var pL = GEO.pL, pR = GEO.pR, pT = GEO.pT, pB = GEO.pB;
+    var pw = Math.max(W - pL - pR, 60), ph = Math.max(H - pT - pB, 60);
+    var n = bars.length;
+
+    var lo = Infinity, hi = -Infinity;
+    for (var i = 0; i < n; i++) { if (bars[i][3] < lo) lo = bars[i][3]; if (bars[i][2] > hi) hi = bars[i][2]; }
+    var m5 = [], m20 = [];
+    for (var j = 0; j < n; j++) { m5.push(ma(5, j)); m20.push(ma(20, j)); }
+    for (var q = 0; q < n; q++) {
+      if (m5[q] !== null) { if (m5[q] < lo) lo = m5[q]; if (m5[q] > hi) hi = m5[q]; }
+      if (m20[q] !== null) { if (m20[q] < lo) lo = m20[q]; if (m20[q] > hi) hi = m20[q]; }
+    }
+    if (!isFinite(lo) || !isFinite(hi)) return;
+    var pad = (hi - lo) * 0.06 || Math.abs(hi) * 0.02 || 1;
+    lo -= pad; hi += pad;
+
+    /* 暴露几何给叠加层 */
+    V.w = W; V.h = H; V.pw = pw; V.ph = ph; V.lo = lo; V.hi = hi; V.n = n;
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.font = '11px -apple-system,"PingFang SC","Microsoft YaHei",sans-serif';
+    ctx.textBaseline = 'middle';
+
+    var GY = 5;
+    for (var g = 0; g <= GY; g++) {
+      var gv = hi - (hi - lo) * g / GY;
+      var gy = Math.round(vY(gv)) + 0.5;
+      ctx.strokeStyle = '#edf0f3'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(pL, gy); ctx.lineTo(pL + pw, gy); ctx.stroke();
+      ctx.fillStyle = '#98a0aa'; ctx.textAlign = 'left';
+      ctx.fillText(gv >= 100 ? gv.toFixed(0) : gv.toFixed(2), pL + pw + 7, gy);
+    }
+
+    var bw = Math.max(pw / n * 0.62, 1);
+    var thin = bw < 2.2;
+    for (var k2 = 0; k2 < n; k2++) {
+      var b = bars[k2], o = b[1], h2 = b[2], l2 = b[3], c = b[4];
+      var col = (c >= o) ? RED : GRN;
+      var x = vX(k2);
+      ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(x, vY(h2)); ctx.lineTo(x, vY(l2)); ctx.stroke();
+      if (!thin) {
+        var y1 = vY(Math.max(o, c)), y2 = vY(Math.min(o, c));
+        ctx.fillRect(x - bw / 2, y1, bw, Math.max(y2 - y1, 1));
+      }
+    }
+
+    function line(arr, color) {
+      ctx.strokeStyle = color; ctx.lineWidth = 1.4;
+      ctx.beginPath();
+      var started = false;
+      for (var i2 = 0; i2 < n; i2++) {
+        if (arr[i2] === null) continue;
+        if (!started) { ctx.moveTo(vX(i2), vY(arr[i2])); started = true; }
+        else ctx.lineTo(vX(i2), vY(arr[i2]));
+      }
+      ctx.stroke();
+    }
+    line(m5, MA5C); line(m20, MA20C);
+
+    ctx.fillStyle = '#98a0aa'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+    var ticks = Math.min(6, n);
+    for (var t2 = 0; t2 < ticks; t2++) {
+      var idx = ticks === 1 ? 0 : Math.round(t2 * (n - 1) / (ticks - 1));
+      ctx.fillText(axisDate(bars[idx][0], per), vX(idx), pT + ph + 6);
+    }
+
+    if (hover >= 0 && hover < n) {
+      ctx.save();
+      ctx.setLineDash([3, 3]); ctx.strokeStyle = '#9aa4b0'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(vX(hover), pT); ctx.lineTo(vX(hover), pT + ph); ctx.stroke();
+      ctx.restore();
+    }
+
+    var first = bars[0][4], last = bars[n - 1][4];
+    var chg = (last / first - 1) * 100;
+    winEl.innerHTML = '区间 ' + fmtDate(bars[0][0], per) + ' → ' + fmtDate(bars[n - 1][0], per) +
+      ' <b style="color:' + (chg >= 0 ? RED : GRN) + '">' + (chg >= 0 ? '+' : '') + chg.toFixed(1) + '%</b>' +
+      '　共 ' + n + ' 根';
+
+    showInfo(hover >= 0 ? hover : n - 1);
+    OV.render();
+  }
+
+  function showInfo(i) {
+    var b = bars[i], o = b[1], h = b[2], l = b[3], c = b[4];
+    var prev = i > 0 ? bars[i - 1][4] : o;
+    var cp = prev ? (c / prev - 1) * 100 : 0;
+    var cl = cp >= 0 ? RED : GRN;
+    var tag = (i === bars.length - 1 && KD[sym] && KD[sym].live && per === 'd') ? ' <span style="color:#185fa5">今日盘中</span>' : '';
+    infoEl.innerHTML =
+      '<span>' + fmtDate(b[0], per) + tag + '</span>' +
+      '<span>开 <b>' + o.toFixed(2) + '</b></span>' +
+      '<span>高 <b>' + h.toFixed(2) + '</b></span>' +
+      '<span>低 <b>' + l.toFixed(2) + '</b></span>' +
+      '<span>收 <b style="color:' + cl + '">' + c.toFixed(2) + '</b></span>' +
+      '<span>涨跌 <b style="color:' + cl + '">' + (cp >= 0 ? '+' : '') + cp.toFixed(2) + '%</b></span>';
+  }
+
+  /* ==================== 画线：工具定义 ==================== */
+  var TOOLS = [
+    { k: 'sel', n: '选择', g: '基', tip: '选择 / 拖动 / 编辑（V）' },
+    { k: 'trend', n: '趋势线', g: '线', tip: '趋势线：连两个高点或低点（T）' },
+    { k: 'ray', n: '射线', g: '线', n2: 2, tip: '射线：A 出发穿过 B 并无限延伸（R）' },
+    { k: 'hline', n: '水平线', g: '线', n2: 1, tip: '水平线：支撑 / 阻力 / 成本线（H）' },
+    { k: 'vline', n: '垂直线', g: '线', n2: 1, tip: '垂直线：标记事件日 / 财报日（N）' },
+    { k: 'channel', n: '通道', g: '线', n2: 3, tip: '平行通道：A-B 定方向，第三点定宽度（C）' },
+    { k: 'fan', n: '扇形', g: '线', n2: 2, tip: '斐波那契扇形：以 A-B 为基准的 38.2/50/61.8 射线' },
+    { k: 'gann', n: '江恩', g: '线', n2: 2, tip: '江恩角度线：1×1 / 2×1 / 1×2' },
+    { k: 'brush', n: '画笔', g: '线', n2: -1, tip: '自由画笔 / 涂鸦（按住拖动）' },
+    { k: 'rect', n: '矩形', g: '形态', n2: 2, tip: '矩形 / 箱体：整理区间' },
+    { k: 'ellipse', n: '椭圆', g: '形态', n2: 2, tip: '椭圆 / 圆' },
+    { k: 'tri', n: '三角', g: '形态', n2: 3, tip: '三角形（上升/下降/对称）' },
+    { k: 'supply', n: '供需区', g: '形态', n2: 2, tip: '供需区 / 订单块（斜线填充）' },
+    { k: 'fib', n: '回撤', g: '斐波', n2: 2, tip: '斐波那契回撤：0 / .236 / .382 / .5 / .618 / .786 / 1' },
+    { k: 'fibext', n: '扩展', g: '斐波', n2: 3, tip: '斐波那契扩展：A-B-C → .618 / 1 / 1.618 / 2.618' },
+    { k: 'fibtime', n: '时间', g: '斐波', n2: 2, tip: '斐波那契时间周期：竖线落在 1/1.618/2.618/4.236' },
+    { k: 'text', n: '文字', g: '标注', n2: 1, tip: '文字注释（双击可改）' },
+    { k: 'price', n: '价格', g: '标注', n2: 1, tip: '价格标签：贴在右侧价格轴' },
+    { k: 'arrow', n: '箭头', g: '标注', n2: 2, tip: '箭头：标注上涨 / 下跌方向' },
+    { k: 'marker', n: '标记', g: '标注', n2: 1, tip: '图标标记 ↑ ↓ ⚠ ★ ●' },
+    { k: 'pattern', n: '形态', g: '标注', n2: 2, tip: '形态图章：头肩顶底 / 双顶双底 / 三角 / 旗形 / 楔形' },
+    { k: 'measure', n: '测量', g: '交易', n2: 2, tip: '测量：涨跌幅 / 根数 / 时间跨度' },
+    { k: 'rr', n: '盈亏比', g: '交易', n2: 3, tip: '风险回报区：入场 → 止损 → 目标，自动算 R:R' }
+  ];
+  var TMAP = {};
+  TOOLS.forEach(function (t) { TMAP[t.k] = t; });
+  TMAP.trend.n2 = 2;
+
+  var GLYPHS = ['↑', '↓', '⚠', '★', '●', '✖', '✔'];
+  var PATTERNS = ['头肩顶', '头肩底', '双顶', '双底', '上升三角', '下降三角', '对称三角', '旗形', '楔形', '矩形整理', '突破', '回踩'];
+
+  var COLORS = ['#185FA5', '#C0392B', '#1D9E75', '#854F0B', '#7C3AED', '#0F766E', '#6B7280', '#111827'];
+
+  /* ==================== 画线：数据与持久化 ==================== */
+  var DB = {}, LS = [], seq = 1;
+  var KEY = 'kdbrief.draw.v1';
+
+  function bkey(s, p) { return s + '|' + p; }
+  function loadDB() { try { DB = JSON.parse(localStorage.getItem(KEY) || '{}') || {}; } catch (e) { DB = {}; } }
+  function saveDB() { try { localStorage.setItem(KEY, JSON.stringify(DB)); } catch (e) { } }
+
+  var CUR = { tool: 'sel', draft: [], sel: null, drag: null, mag: true, glyph: '↑', pattern: '头肩顶', undo: [] };
+
+  function loadLS() {
+    LS = [];
+    (DB[bkey(sym, per)] || []).forEach(function (o) { LS.push({ o: o, b: bkey(sym, per) }); });
+    (DB[bkey(sym, '*')] || []).forEach(function (o) { LS.push({ o: o, b: bkey(sym, '*') }); });
+  }
+  function persist() {
+    var g = {};
+    LS.forEach(function (x) {
+      var b = x.o.sync ? bkey(sym, '*') : bkey(sym, per);
+      x.b = b; (g[b] = g[b] || []).push(x.o);
+    });
+    DB[bkey(sym, per)] = g[bkey(sym, per)] || [];
+    DB[bkey(sym, '*')] = g[bkey(sym, '*')] || [];
+    saveDB();
+  }
+  function snap() {
+    CUR.undo.push(JSON.stringify(LS.map(function (x) { return x.o; })));
+    if (CUR.undo.length > 40) CUR.undo.shift();
+  }
+  function undo() {
+    if (!CUR.undo.length) return;
+    var s = CUR.undo.pop();
+    try {
+      var arr = JSON.parse(s);
+      LS = arr.map(function (o) { return { o: o, b: '' }; });
+      persist(); OV.render();
+    } catch (e) { }
+  }
+
+  function newId() { return 'd' + (seq++) + '_' + Math.random().toString(36).slice(2, 7); }
+  function mkpt(i, p) {
+    var k = Math.round(i);
+    return { i: i, p: p, d: (k >= 0 && k < bars.length) ? bars[k][0] : null };
+  }
+  function idxOf(o) {
+    if (o.d && DM[o.d] != null) return DM[o.d];
+    return o.i;
+  }
+  function resolve(o) { return { x: vX(idxOf(o)), y: vY(o.p), i: idxOf(o), p: o.p }; }
+
+  function withDefaults(o) {
+    o.style = o.style || {};
+    var s = o.style;
+    if (s.c == null) s.c = '#185FA5';
+    if (s.w == null) s.w = 2;
+    if (s.dash == null) s.dash = 0;
+    if (s.fill == null) s.fill = false;
+    if (o.locked == null) o.locked = false;
+    if (o.sync == null) o.sync = false;
+    if (o.alert == null) o.alert = false;
+    if (o.text == null) o.text = '';
+    if (o.glyph == null) o.glyph = '';
+    return o;
+  }
+
+  /* ==================== 画线：几何工具 ==================== */
+  var DASH = ['', '6 4', '2 4'];
+  function clipLine(x1, y1, x2, y2, box) {
+    /* 把线段延长到 box 边界（射线用） */
+    var dx = x2 - x1, dy = y2 - y1;
+    if (!dx && !dy) return [x1, y1, x2, y2];
+    var t = [];
+    if (dx) { t.push((box.x1 - x1) / dx); t.push((box.x2 - x1) / dx); }
+    if (dy) { t.push((box.y1 - y1) / dy); t.push((box.y2 - y1) / dy); }
+    var tmax = -1e9;
+    for (var i = 0; i < t.length; i++) if (t[i] > tmax && isFinite(t[i])) tmax = t[i];
+    return [x1, y1, x1 + dx * tmax, y1 + dy * tmax];
+  }
+  function seg(x1, y1, x2, y2, s, extra) {
+    return '<line x1="' + x1.toFixed(1) + '" y1="' + y1.toFixed(1) + '" x2="' + x2.toFixed(1) +
+      '" y2="' + y2.toFixed(1) + '" stroke="' + s.c + '" stroke-width="' + s.w +
+      '" stroke-dasharray="' + (DASH[s.dash] || '') + '" ' + (extra || '') + '/>';
+  }
+  function txt(x, y, str, col, size, anchor, noHalo) {
+    var halo = noHalo ? '' : ' style="paint-order:stroke;stroke:#fff;stroke-width:3.2;stroke-linejoin:round"';
+    return '<text x="' + x.toFixed(1) + '" y="' + y.toFixed(1) + '" fill="' + col +
+      '" font-size="' + (size || 10.5) + '" text-anchor="' + (anchor || 'start') + '"' + halo + '>' + esc(str) + '</text>';
+  }
+
+  /* ==================== 画线：渲染 ==================== */
+  var OV = (function () {
+    var lastBadge = 0;
+
+    function plotBox() {
+      return { x1: GEO.pL, y1: GEO.pT, x2: GEO.pL + V.pw, y2: GEO.pT + V.ph };
+    }
+
+    function body(d) {
+      var s = d.style, P = d.pts.map(resolve), out = '', i, box = plotBox();
+      var dash = DASH[s.dash] || '';
+      switch (d.type) {
+        case 'trend':
+          out = seg(P[0].x, P[0].y, P[1].x, P[1].y, s);
+          break;
+        case 'ray':
+          var r = clipLine(P[0].x, P[0].y, P[1].x, P[1].y, box);
+          out = seg(P[0].x, P[0].y, r[2], r[3], s);
+          out += txt(r[2] - 4, r[3] - 6, f2(P[1].p), s.c, 10, 'end');
+          break;
+        case 'hline':
+          out = seg(box.x1, P[0].y, box.x2, P[0].y, s);
+          break;
+        case 'vline':
+          out = seg(P[0].x, box.y1, P[0].x, box.y2, s);
+          var vi = Math.round(P[0].i);
+          var vlab = d.text || (bars[vi] ? fmtDate(bars[vi][0], per) : '');
+          if (vlab) {
+            out += '<rect x="' + (P[0].x + 2) + '" y="' + (box.y1 + 2) + '" width="' + (8 + vlab.length * 7.2) +
+              '" height="15" rx="3" fill="' + s.c + '" opacity=".9"/>';
+            out += txt(P[0].x + 6, box.y1 + 13, vlab, '#fff', 10, 'start', true);
+          }
+          break;
+        case 'channel':
+          var dx = P[1].x - P[0].x, dy = P[1].y - P[0].y;
+          out = seg(P[0].x, P[0].y, P[1].x, P[1].y, s);
+          var oy = P[2].y - (P[0].y + dy * ((P[2].x - P[0].x) / (dx || 1)));
+          out += seg(P[0].x, P[0].y + oy, P[1].x, P[1].y + oy, s);
+          if (s.fill) {
+            out += '<polygon points="' + P[0].x + ',' + P[0].y + ' ' + P[1].x + ',' + P[1].y + ' ' +
+              P[1].x + ',' + (P[1].y + oy) + ' ' + P[0].x + ',' + (P[0].y + oy) + '" fill="' + hexA(s.c, .08) + '"/>';
+          }
+          break;
+        case 'fan':
+          var a0 = -Math.PI / 2;
+          var a1 = Math.atan2(P[1].y - P[0].y, P[1].x - P[0].x);
+          var lv = [0, .382, .5, .618, 1];
+          for (i = 0; i < lv.length; i++) {
+            var ang = a0 + (a1 - a0) * lv[i];
+            var rr = clipLine(P[0].x, P[0].y, P[0].x + Math.cos(ang) * 4000, P[0].y + Math.sin(ang) * 4000, box);
+            out += seg(P[0].x, P[0].y, rr[2], rr[3], { c: s.c, w: s.w, dash: s.dash }, 'opacity="' + (i === 1 || i === 3 ? 1 : .55) + '"');
+            out += txt(rr[2] - 3, rr[3] - 4, (lv[i] * 100).toFixed(1), s.c, 9, 'end');
+          }
+          break;
+        case 'gann':
+          var gdx = P[1].x - P[0].x, gdy = P[1].y - P[0].y;
+          if (!gdx) gdx = 1;
+          var ratios = [[1, '1×1'], [2, '2×1'], [0.5, '1×2']];
+          for (i = 0; i < ratios.length; i++) {
+            var f = ratios[i][0];
+            var ex = P[0].x + gdx * 3, ey = P[0].y + gdy * f * 3;
+            var rr2 = clipLine(P[0].x, P[0].y, ex, ey, box);
+            out += seg(P[0].x, P[0].y, rr2[2], rr2[3], s, 'opacity="' + (f === 1 ? 1 : .6) + '"');
+            var d2 = clipLine(P[0].x, P[0].y, P[0].x + gdx * 3, P[0].y - gdy * f * 3, box);
+            out += seg(P[0].x, P[0].y, d2[2], d2[3], s, 'opacity="' + (f === 1 ? 1 : .4) + '"');
+            out += txt(rr2[2] - 3, rr2[3] - 4, ratios[i][1], s.c, 9, 'end');
+          }
+          break;
+        case 'brush':
+          var pts = P.map(function (p) { return p.x.toFixed(1) + ',' + p.y.toFixed(1); }).join(' ');
+          out = '<polyline points="' + pts + '" fill="none" stroke="' + s.c + '" stroke-width="' + s.w +
+            '" stroke-linejoin="round" stroke-linecap="round" opacity=".95"/>';
+          break;
+        case 'rect':
+        case 'supply':
+          var rx = Math.min(P[0].x, P[1].x), ry = Math.min(P[0].y, P[1].y);
+          var rw = Math.abs(P[1].x - P[0].x), rh = Math.abs(P[1].y - P[0].y);
+          out = '<rect x="' + rx + '" y="' + ry + '" width="' + rw + '" height="' + rh +
+            '" fill="' + (d.type === 'supply' ? 'url(#hatch)' : (s.fill ? hexA(s.c, .1) : 'none')) +
+            '" stroke="' + s.c + '" stroke-width="' + s.w + '" stroke-dasharray="' + dash + '"/>';
+          out += txt(rx + 3, ry + 11, d.text || (d.type === 'supply' ? '供需区' : ''), s.c, 10);
+          break;
+        case 'ellipse':
+          out = '<ellipse cx="' + ((P[0].x + P[1].x) / 2) + '" cy="' + ((P[0].y + P[1].y) / 2) +
+            '" rx="' + (Math.abs(P[1].x - P[0].x) / 2) + '" ry="' + (Math.abs(P[1].y - P[0].y) / 2) +
+            '" fill="' + (s.fill ? hexA(s.c, .1) : 'none') + '" stroke="' + s.c + '" stroke-width="' + s.w +
+            '" stroke-dasharray="' + dash + '"/>';
+          break;
+        case 'tri':
+          out = '<polygon points="' + P[0].x + ',' + P[0].y + ' ' + P[1].x + ',' + P[1].y + ' ' +
+            P[2].x + ',' + P[2].y + '" fill="' + (s.fill ? hexA(s.c, .1) : 'none') +
+            '" stroke="' + s.c + '" stroke-width="' + s.w + '" stroke-dasharray="' + dash + '"/>';
+          break;
+        case 'fib':
+          var lv2 = [0, .236, .382, .5, .618, .786, 1, 1.272, 1.618];
+          var xa = Math.min(P[0].x, P[1].x), xb = box.x2;
+          var p0 = P[0].p, p1 = P[1].p, dpp = p1 - p0;
+          for (i = 0; i < lv2.length; i++) {
+            var lvl = lv2[i], pv = p0 + dpp * lvl, yy = vY(pv);
+            if (yy < box.y1 || yy > box.y2) continue;
+            var isMain = (lvl === 0 || lvl === .5 || lvl === 1);
+            out += '<line x1="' + xa + '" y1="' + yy.toFixed(1) + '" x2="' + xb + '" y2="' + yy.toFixed(1) +
+              '" stroke="' + s.c + '" stroke-width="' + (isMain ? s.w : 1) + '" opacity="' + (isMain ? .95 : .5) + '"/>';
+            out += txt(xb - 3, yy - 3, lvl.toFixed(3).replace(/0+$/, '').replace(/\.$/, '') + '  ' + f2(pv), s.c, 9.5, 'end');
+          }
+          break;
+        case 'fibext':
+          var pa = P[0].p, pb = P[1].p, pc = P[2].p, dd = pb - pa;
+          var lv3 = [0, .618, 1, 1.618, 2.618];
+          var xa2 = Math.min(P[0].x, P[1].x), xb2 = box.x2;
+          for (i = 0; i < lv3.length; i++) {
+            var pv2 = pc + dd * lv3[i], yy2 = vY(pv2);
+            if (yy2 < box.y1 || yy2 > box.y2) continue;
+            out += '<line x1="' + xa2 + '" y1="' + yy2.toFixed(1) + '" x2="' + xb2 + '" y2="' + yy2.toFixed(1) +
+              '" stroke="' + s.c + '" stroke-width="' + (lv3[i] === 1 ? s.w : 1) + '" opacity="' + (lv3[i] === 1 ? .95 : .5) + '"/>';
+            out += txt(xb2 - 3, yy2 - 3, lv3[i].toFixed(3).replace(/0+$/, '').replace(/\.$/, '') + '  ' + f2(pv2), s.c, 9.5, 'end');
+          }
+          break;
+        case 'fibtime':
+          var step = P[1].i - P[0].i;
+          var ks = [1, 1.618, 2.618, 4.236, 6.854];
+          for (i = 0; i < ks.length; i++) {
+            var ii = P[0].i + step * ks[i], xx = vX(ii);
+            if (xx < box.x1 || xx > box.x2) continue;
+            out += '<line x1="' + xx.toFixed(1) + '" y1="' + box.y1 + '" x2="' + xx.toFixed(1) + '" y2="' + box.y2 +
+              '" stroke="' + s.c + '" stroke-width="1" opacity=".55" stroke-dasharray="4 3"/>';
+            out += txt(xx + 2, box.y1 + 10, ks[i].toFixed(1), s.c, 9);
+          }
+          break;
+        case 'text':
+          out = txt(P[0].x + 4, P[0].y - 4, d.text || '文字', s.c, 12);
+          out += '<circle cx="' + P[0].x + '" cy="' + P[0].y + '" r="2.2" fill="' + s.c + '"/>';
+          break;
+        case 'price':
+          out = seg(box.x1, P[0].y, box.x2, P[0].y, s, 'opacity=".75"');
+          break;
+        case 'arrow':
+          var ang2 = Math.atan2(P[1].y - P[0].y, P[1].x - P[0].x);
+          var head = 8 + s.w * 2;
+          var hx = P[1].x, hy = P[1].y;
+          var ax1 = hx - head * Math.cos(ang2 - 0.42), ay1 = hy - head * Math.sin(ang2 - 0.42);
+          var ax2 = hx - head * Math.cos(ang2 + 0.42), ay2 = hy - head * Math.sin(ang2 + 0.42);
+          out = seg(P[0].x, P[0].y, hx, hy, s);
+          out += '<polygon points="' + hx + ',' + hy + ' ' + ax1 + ',' + ay1 + ' ' + ax2 + ',' + ay2 +
+            '" fill="' + s.c + '"/>';
+          if (d.text) out += txt((P[0].x + P[1].x) / 2, (P[0].y + P[1].y) / 2 - 6, d.text, s.c, 10.5, 'middle');
+          break;
+        case 'marker':
+          out = '<text x="' + P[0].x + '" y="' + (P[0].y - 8) + '" fill="' + s.c + '" font-size="16" text-anchor="middle" ' +
+            'style="paint-order:stroke;stroke:#fff;stroke-width:3.4">' + esc(d.glyph || '●') + '</text>';
+          if (d.text) out += txt(P[0].x, P[0].y + 14, d.text, s.c, 10, 'middle');
+          break;
+        case 'pattern':
+          var px1 = Math.min(P[0].x, P[1].x), py1 = Math.min(P[0].y, P[1].y);
+          var pw2 = Math.abs(P[1].x - P[0].x), ph2 = Math.abs(P[1].y - P[0].y);
+          out = '<rect x="' + px1 + '" y="' + py1 + '" width="' + pw2 + '" height="' + ph2 +
+            '" rx="6" fill="' + hexA(s.c, .05) + '" stroke="' + s.c + '" stroke-width="1.4" stroke-dasharray="5 4"/>';
+          out += '<rect x="' + (px1 + 4) + '" y="' + (py1 - 9) + '" width="' + (24 + (d.pattern || '形态').length * 11) +
+            '" height="15" rx="4" fill="' + s.c + '" opacity=".92"/>';
+          out += txt(px1 + 10, py1 + 2, d.pattern || '形态', '#fff', 10, 'start', true);
+          break;
+        case 'measure': {
+          var mx = Math.min(P[0].x, P[1].x), my = Math.min(P[0].y, P[1].y);
+          var mw = Math.abs(P[1].x - P[0].x), mh = Math.abs(P[1].y - P[0].y);
+          var dp = P[1].p - P[0].p, pc2 = (P[1].p / P[0].p - 1) * 100;
+          var di = Math.round(P[1].i - P[0].i);
+          var col2 = dp >= 0 ? RED : GRN;
+          out = '<rect x="' + mx + '" y="' + my + '" width="' + mw + '" height="' + mh +
+            '" fill="' + hexA(col2, .10) + '" stroke="' + col2 + '" stroke-width="1" stroke-dasharray="4 3"/>';
+          var lbl = fp(dp) + '  ' + fpc(pc2) + '  ·  ' + Math.abs(di) + ' 根  ·  ' + fmtDate(bars[Math.round(P[0].i)] ? bars[Math.round(P[0].i)][0] : bars[0][0], per) +
+            ' → ' + fmtDate(bars[Math.round(P[1].i)] ? bars[Math.round(P[1].i)][0] : bars[bars.length - 1][0], per);
+          out += '<rect x="' + (mx + 4) + '" y="' + (my + 4) + '" width="' + Math.min(300, 9 + lbl.length * 6.6) +
+            '" height="17" rx="4" fill="#fff" opacity=".92" stroke="' + col2 + '" stroke-width="1"/>';
+          out += txt(mx + 9, my + 16, lbl, col2, 10);
+          break;
+        }
+        case 'rr': {
+          var pe = P[0].p, ps = P[1].p, pt = P[2].p;
+          var x0 = Math.min(P[0].x, P[2].x), x1 = box.x2;
+          var lo1 = Math.min(ps, pt), hi1 = Math.max(ps, pt);
+          var yr = Math.min(vY(ps), vY(pe)), yz = Math.min(vY(pt), vY(pe));
+          var colS = '#C0392B', colT = '#1D9E75';
+          out += '<rect x="' + x0 + '" y="' + yr + '" width="' + (x1 - x0) + '" height="' + Math.abs(vY(pe) - vY(ps)) +
+            '" fill="' + hexA(colS, .10) + '" stroke="none"/>';
+          out += '<rect x="' + x0 + '" y="' + yz + '" width="' + (x1 - x0) + '" height="' + Math.abs(vY(pe) - vY(pt)) +
+            '" fill="' + hexA(colT, .10) + '" stroke="none"/>';
+          out += seg(x0, vY(pe), x1, vY(pe), { c: '#185FA5', w: 2, dash: 0 });
+          out += seg(x0, vY(ps), x1, vY(ps), { c: colS, w: 1.4, dash: 1 });
+          out += seg(x0, vY(pt), x1, vY(pt), { c: colT, w: 1.4, dash: 1 });
+          out += txt(x0 + 4, vY(pe) - 4, '入场 ' + f2(pe), '#185FA5', 10);
+          out += txt(x0 + 4, vY(ps) + 12, '止损 ' + f2(ps), colS, 10);
+          out += txt(x0 + 4, vY(pt) - 4, '目标 ' + f2(pt), colT, 10);
+          var risk = Math.abs(pe - ps), rew = Math.abs(pt - pe);
+          var R = risk ? (rew / risk) : 0;
+          var bad = R < 2;
+          out += '<rect x="' + (x0 + 4) + '" y="' + (vY(pe) + 4) + '" width="132" height="17" rx="4" fill="#fff" stroke="' +
+            (bad ? colS : colT) + '" stroke-width="1"/>';
+          out += txt(x0 + 9, vY(pe) + 16, 'R:R = 1 : ' + R.toFixed(2) + (bad ? '（<2 偏低）' : ''), bad ? colS : colT, 10);
+          break;
+        }
+      }
+      return out;
+    }
+
+    function priceTag(d, P) {
+      if (d.type !== 'hline' && d.type !== 'price') return '';
+      var y = P[0].y, p = P[0].p;
+      var bx = GEO.pL + V.pw + 2;
+      return '<rect x="' + bx + '" y="' + (y - 8) + '" width="' + (GEO.pR - 6) + '" height="16" rx="3" fill="' +
+        d.style.c + '"/><text x="' + (bx + (GEO.pR - 6) / 2) + '" y="' + (y + 0.5) +
+        '" fill="#fff" font-size="10" text-anchor="middle" dominant-baseline="middle">' + f2(p) + '</text>';
+    }
+
+    function alertMark(d) {
+      if (!d.alert) return '';
+      var lastC = bars[bars.length - 1][4], prevC = bars[bars.length - 2] ? bars[bars.length - 2][4] : lastC;
+      var lvl = levelAt(d, bars.length - 1);
+      if (lvl == null) return '';
+      var crossed = (prevC - lvl) * (lastC - lvl) < 0;
+      if (!crossed) return '';
+      var x = GEO.pL + V.pw - 74, y = vY(lvl) - 7;
+      return '<rect x="' + x + '" y="' + y + '" width="70" height="15" rx="3" fill="#FDF3F2" stroke="#C0392B"/>' +
+        txt(x + 4, y + 11.5, '⚡ 已穿越', '#C0392B', 9.5);
+    }
+
+    function levelAt(d, i) {
+      if (d.type === 'hline' || d.type === 'price') return d.pts[0].p;
+      if (d.type === 'trend' || d.type === 'ray') {
+        var a = resolve(d.pts[0]), b = resolve(d.pts[1]);
+        var ia = idxOf(d.pts[0]), ib = idxOf(d.pts[1]);
+        if (ib === ia) return null;
+        var t = (i - ia) / (ib - ia);
+        return d.pts[0].p + (d.pts[1].p - d.pts[0].p) * t;
+      }
+      return null;
+    }
+
+    function handles(d) {
+      if (CUR.sel !== d || d.locked) return '';
+      var P = d.pts.map(resolve), out = '';
+      for (var i = 0; i < P.length; i++) {
+        out += '<circle class="kh" data-h="' + i + '" cx="' + P[i].x + '" cy="' + P[i].y + '" r="4.5" ' +
+          'fill="#fff" stroke="#185FA5" stroke-width="1.6" style="cursor:grab"/>';
+      }
+      return out;
+    }
+
+    var api = {};
+    api.render = function () {
+      if (!V.n) return;
+      svg.setAttribute('viewBox', '0 0 ' + V.w + ' ' + V.h);
+      var g = '', top = '', i, d, P;
+      var list = LS.map(function (x) { return x.o; }).filter(function (o) { return !o.hidden; });
+      for (i = 0; i < list.length; i++) {
+        d = list[i];
+        if (CUR.sel === d) {
+          /* 选中：先画一层加粗高亮打底 */
+          g += '<g opacity=".28">' + body(withGhost(d)) + '</g>';
+        }
+        g += '<g class="kobj" data-id="' + d.id + '">' + ghostHit(body(d)) + body(d) + '</g>';
+        P = d.pts.map(resolve);
+        top += priceTag(d, P);
+        top += alertMark(d);
+        top += handles(d);
+      }
+      /* 预览 */
+      if (CUR.draft.length && CUR.tool !== 'sel') {
+        var pts0 = CUR.draft.concat(CUR.preview || []);
+        var nn = need();
+        var tmp = { type: CUR.tool, pts: pts0, style: { c: '#185FA5', w: 2, dash: 1, fill: false }, text: '', glyph: CUR.glyph, pattern: CUR.pattern };
+        if (nn > 0 && pts0.length >= nn) {
+          g += '<g opacity=".85">' + body(tmp) + '</g>';
+        } else {
+          var pre = '';
+          for (var pi = 0; pi < pts0.length; pi++) {
+            var rq = resolve(pts0[pi]);
+            pre += '<circle cx="' + rq.x.toFixed(1) + '" cy="' + rq.y.toFixed(1) + '" r="3.2" fill="#185FA5"/>';
+            if (pi > 0) {
+              var rp = resolve(pts0[pi - 1]);
+              pre += seg(rp.x, rp.y, rq.x, rq.y, { c: '#185FA5', w: 1, dash: 1 });
+            }
+          }
+          g += pre;
+        }
+      }
+      svg.innerHTML =
+        '<defs><pattern id="hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">' +
+        '<line x1="0" y1="0" x2="0" y2="7" stroke="#854F0B" stroke-width="1.6" opacity=".38"/></pattern>' +
+        '<clipPath id="kclip"><rect x="' + GEO.pL + '" y="' + GEO.pT + '" width="' + V.pw + '" height="' + V.ph + '"/></clipPath></defs>' +
+        '<rect id="khit" x="' + GEO.pL + '" y="' + GEO.pT + '" width="' + V.pw + '" height="' + V.ph +
+        '" fill="transparent" style="pointer-events:' + (CUR.tool === 'sel' ? 'none' : 'all') + ';cursor:crosshair"/>' +
+        '<g clip-path="url(#kclip)">' + g + '</g>' + top;
+
+      /* 预警计数 */
+      var nAlert = 0;
+      for (i = 0; i < list.length; i++) {
+        d = list[i];
+        if (!d.alert) continue;
+        var lvl = levelAt(d, bars.length - 1);
+        if (lvl == null) continue;
+        var lc = bars[bars.length - 1][4], pc3 = bars[bars.length - 2] ? bars[bars.length - 2][4] : lc;
+        if ((pc3 - lvl) * (lc - lvl) < 0) nAlert++;
+      }
+      var badge = document.getElementById('kdalert');
+      if (badge) {
+        badge.textContent = nAlert ? ('⚡ 预警 ' + nAlert) : '⚡ 预警 0';
+        badge.className = 'kdb' + (nAlert ? ' hot' : '');
+      }
+    };
+    function withGhost(d) {
+      var o = { type: d.type, pts: d.pts, text: d.text, glyph: d.glyph, pattern: d.pattern,
+        style: { c: d.style.c, w: d.style.w + 5, dash: 0, fill: false } };
+      return o;
+    }
+    /* 生成一层"透明加粗"的命中区，让细线也好点中 */
+    function ghostHit(str) {
+      return str
+        .replace(/fill="(?!none)[^"]*"/g, 'fill="none"')
+        .replace(/stroke="(?!none|transparent)[^"]*"/g, 'stroke="transparent"')
+        .replace(/stroke-width="[\d.]+"/g, 'stroke-width="16"');
+    }
+    return api;
+  })();
+
+  /* ==================== 画线：UI ==================== */
+  function buildTools() {
+    var html = '', lastG = '';
+    for (var i = 0; i < TOOLS.length; i++) {
+      var t = TOOLS[i];
+      if (t.g !== lastG) {
+        if (lastG) html += '<span class="kdsep"></span>';
+        html += '<span class="kdg">' + t.g + '</span>';
+        lastG = t.g;
+      }
+      html += '<button type="button" class="ktb" data-t="' + t.k + '" title="' + esc(t.tip) + '">' + t.n + '</button>';
+    }
+    toolsEl.innerHTML = html;
+    toolsEl.onclick = function (e) {
+      var b = e.target;
+      if (b && b.tagName === 'BUTTON' && b.getAttribute('data-t')) setTool(b.getAttribute('data-t'));
+    };
+  }
+
+  function setTool(k) {
+    CUR.tool = k; CUR.draft = []; CUR.preview = [];
+    if (k !== 'sel') CUR.sel = null;
+    var bs = toolsEl.getElementsByTagName('button');
+    for (var i = 0; i < bs.length; i++) bs[i].className = 'ktb' + (bs[i].getAttribute('data-t') === k ? ' on' : '');
+    buildCtx();
+    buildStyle();
+    OV.render();
+  }
+
+  function buildCtx() {
+    var h = '';
+    h += '<label class="kdsw"><input type="checkbox" id="kdmag"' + (CUR.mag ? ' checked' : '') + '> 磁吸到高低/收盘</label>';
+    if (CUR.tool === 'marker') {
+      h += '<span class="kdg2">图标</span>';
+      for (var i = 0; i < GLYPHS.length; i++) {
+        h += '<button type="button" class="ktb sm' + (CUR.glyph === GLYPHS[i] ? ' on' : '') +
+          '" data-g="' + GLYPHS[i] + '">' + GLYPHS[i] + '</button>';
+      }
+    }
+    if (CUR.tool === 'pattern') {
+      h += '<span class="kdg2">形态</span><select id="kdpat">';
+      for (var j = 0; j < PATTERNS.length; j++) {
+        h += '<option' + (CUR.pattern === PATTERNS[j] ? ' selected' : '') + '>' + PATTERNS[j] + '</option>';
+      }
+      h += '</select>';
+    }
+    h += '<span class="kdsep"></span>' +
+      '<button type="button" class="ktb sm" id="kdundo" title="撤销（Ctrl+Z）">↶ 撤销</button>' +
+      '<button type="button" class="ktb sm" id="kdclr" title="清空本周期（跨周期线同时清空）">清空</button>' +
+      '<button type="button" class="ktb sm" id="kdexp" title="导出画线 JSON">导出</button>' +
+      '<button type="button" class="ktb sm" id="kdimp" title="导入画线 JSON">导入</button>' +
+      '<input type="file" id="kdfile" accept=".json" style="display:none">' +
+      '<span class="kdb" id="kdalert">⚡ 预警 0</span>' +
+      '<span class="kdcount" id="kdcount"></span>';
+    ctxEl.innerHTML = h;
+
+    document.getElementById('kdmag').onchange = function () { CUR.mag = this.checked; };
+    document.getElementById('kdundo').onclick = undo;
+    document.getElementById('kdclr').onclick = function () {
+      if (!LS.length) return;
+      if (!window.confirm('清空「' + sym + ' · ' + per + ' 周期」的全部画线？跨周期线也会一起清空。')) return;
+      snap(); LS = []; persist(); CUR.sel = null; buildStyle(); OV.render();
+    };
+    document.getElementById('kdexp').onclick = function () {
+      var blob = new Blob([JSON.stringify({ v: 1, sym: sym, per: per, items: LS.map(function (x) { return x.o; }) }, null, 1)], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'draw_' + sym + '_' + per + '.json';
+      a.click();
+    };
+    document.getElementById('kdimp').onclick = function () { document.getElementById('kdfile').click(); };
+    document.getElementById('kdfile').onchange = function (e) {
+      var f = e.target.files[0];
+      if (!f) return;
+      var rd = new FileReader();
+      rd.onload = function () {
+        try {
+          var j = JSON.parse(rd.result);
+          var arr = j.items || j;
+          if (!Array.isArray(arr)) throw 0;
+          snap();
+          arr.forEach(function (o) { o.id = newId(); LS.push({ o: withDefaults(o), b: '' }); });
+          persist(); OV.render();
+        } catch (err) { window.alert('导入失败：文件不是本工具导出的画线 JSON。'); }
+      };
+      rd.readAsText(f);
+      e.target.value = '';
+    };
+    if (CUR.tool === 'marker') {
+      ctxEl.onclick = function (e) {
+        var b = e.target;
+        if (b && b.getAttribute && b.getAttribute('data-g')) { CUR.glyph = b.getAttribute('data-g'); buildCtx(); }
+      };
+    } else { ctxEl.onclick = null; }
+    var pat = document.getElementById('kdpat');
+    if (pat) pat.onchange = function () { CUR.pattern = this.value; };
+  }
+
+  function buildStyle() {
+    var d = CUR.sel;
+    var cnt = document.getElementById('kdcount');
+    if (cnt) {
+      var nOwn = (DB[bkey(sym, per)] || []).length, nAll = (DB[bkey(sym, '*')] || []).length;
+      cnt.textContent = '本周期 ' + nOwn + ' 条' + (nAll ? ' · 跨周期 ' + nAll + ' 条' : '');
+    }
+    if (!d) { styleEl.className = 'kdstyle'; styleEl.innerHTML = ''; return; }
+    styleEl.className = 'kdstyle on';
+    var h = '<span class="kdg2">' + (TMAP[d.type] ? TMAP[d.type].n : '线') + '</span>';
+    h += '<span class="kdsw2">';
+    for (var i = 0; i < COLORS.length; i++) {
+      h += '<i class="kdc' + (d.style.c === COLORS[i] ? ' on' : '') + '" data-c="' + COLORS[i] +
+        '" style="background:' + COLORS[i] + '"></i>';
+    }
+    h += '</span>';
+    h += '<span class="kdseg">';
+    [1, 2, 3, 4].forEach(function (w) {
+      h += '<button type="button" data-w="' + w + '" class="' + (d.style.w === w ? 'on' : '') + '">' + w + 'px</button>';
+    });
+    h += '</span><span class="kdseg">';
+    [['实线', 0], ['虚线', 1], ['点线', 2]].forEach(function (x) {
+      h += '<button type="button" data-d="' + x[1] + '" class="' + (d.style.dash === x[1] ? 'on' : '') + '">' + x[0] + '</button>';
+    });
+    h += '</span>';
+    if (d.type === 'rect' || d.type === 'ellipse' || d.type === 'tri' || d.type === 'channel') {
+      h += '<label class="kdsw"><input type="checkbox" id="kdfill"' + (d.style.fill ? ' checked' : '') + '> 填充</label>';
+    }
+    if (d.type === 'hline' || d.type === 'price') {
+      h += '<label class="kdsw"><input type="checkbox" id="kdsync"' + (d.sync ? ' checked' : '') + '> 跨周期显示</label>';
+      h += '<label class="kdsw"><input type="checkbox" id="kdax"' + (d.alert ? ' checked' : '') + '> 穿越预警</label>';
+    }
+    if (d.type === 'text' || d.type === 'arrow' || d.type === 'marker' || d.type === 'rect' || d.type === 'supply' || d.type === 'pattern') {
+      h += '<input id="kdtext" class="kdin" placeholder="文字" value="' + esc(d.text) + '">';
+    }
+    h += '<span class="kdseg">' +
+      '<button type="button" id="kdcopy" title="复制">复制</button>' +
+      '<button type="button" id="kdlock" title="锁定后不可拖动">' + (d.locked ? '解锁' : '锁定') + '</button>' +
+      '<button type="button" id="kdhide" title="隐藏（撤销可恢复）">隐藏</button>' +
+      '<button type="button" id="kddel" class="danger" title="删除（Del）">删除</button>' +
+      '</span>';
+    styleEl.innerHTML = h;
+
+    var sws = styleEl.querySelectorAll('.kdc');
+    for (var s2 = 0; s2 < sws.length; s2++) {
+      sws[s2].onclick = function () { changeStyle({ c: this.getAttribute('data-c') }); };
+    }
+    bindAll('[data-w]', function () { changeStyle({ w: parseInt(this.getAttribute('data-w'), 10) }); });
+    bindAll('[data-d]', function () { changeStyle({ dash: parseInt(this.getAttribute('data-d'), 10) }); });
+    bindCheck('kdfill', function (v) { changeStyle({ fill: v }); });
+    bindCheck('kdsync', function (v) { snap(); d.sync = v; persist(); OV.render(); });
+    bindCheck('kdax', function (v) { changeStyle({ alert: v }); });
+    var ti = document.getElementById('kdtext');
+    if (ti) ti.oninput = function () { d.text = this.value; OV.render(); persistDebounced(); };
+    var cp = document.getElementById('kdcopy');
+    if (cp) cp.onclick = function () {
+      snap();
+      var o = JSON.parse(JSON.stringify(d));
+      o.id = newId();
+      o.pts.forEach(function (p) { p.p += (V.hi - V.lo) * 0.03; p.i += 3; p.d = null; });
+      LS.push({ o: withDefaults(o), b: '' });
+      persist(); CUR.sel = o; buildStyle(); OV.render();
+    };
+    var lk = document.getElementById('kdlock');
+    if (lk) lk.onclick = function () { snap(); d.locked = !d.locked; buildStyle(); OV.render(); };
+    var hd = document.getElementById('kdhide');
+    if (hd) hd.onclick = function () {
+      snap(); d.hidden = true; CUR.sel = null; persist(); buildStyle(); OV.render();
+    };
+    var dl = document.getElementById('kddel');
+    if (dl) dl.onclick = delSel;
+
+    function bindAll(sel, fn) {
+      var els = styleEl.querySelectorAll(sel);
+      for (var q = 0; q < els.length; q++) els[q].onclick = fn;
+    }
+    function bindCheck(id2, fn) {
+      var el = document.getElementById(id2);
+      if (el) el.onchange = function () { fn(this.checked); };
+    }
+  }
+
+  function changeStyle(patch) {
+    if (!CUR.sel) return;
+    snap();
+    for (var k in patch) {
+      if (k === 'alert') CUR.sel.alert = patch[k];
+      else if (k === 'sync') CUR.sel.sync = patch[k];
+      else CUR.sel.style[k] = patch[k];
+    }
+    persist(); buildStyle(); OV.render();
+  }
+
+  function delSel() {
+    if (!CUR.sel) return;
+    snap();
+    LS = LS.filter(function (x) { return x.o !== CUR.sel; });
+    CUR.sel = null; persist(); buildStyle(); OV.render();
+  }
+
+  var saveTimer = null;
+  function persistDebounced() {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(function () { persist(); }, 250);
+  }
+
+  /* ==================== 画线：指针交互 ==================== */
+  function evPt(e) {
+    var r = cv.getBoundingClientRect();
+    var x = (e.touches ? e.touches[0].clientX : e.clientX) - r.left;
+    var y = (e.touches ? e.touches[0].clientY : e.clientY) - r.top;
+    x = chk(x, GEO.pL, GEO.pL + V.pw);
+    y = chk(y, GEO.pT, GEO.pT + V.ph);
+    var i = vIx(x), p = vPy(y);
+    if (CUR.mag) {
+      var k = chk(Math.round(i), 0, bars.length - 1);
+      var cand = [bars[k][1], bars[k][2], bars[k][3], bars[k][4]];
+      var best = null, bd = 1e9;
+      for (var c = 0; c < cand.length; c++) {
+        var d = Math.abs(vY(cand[c]) - y);
+        if (d < bd) { bd = d; best = cand[c]; }
+      }
+      if (bd <= 9) { p = best; i = k; }
+    }
+    return mkpt(i, p);
+  }
+
+  function need() { var t = TMAP[CUR.tool]; return t ? (t.k === 'trend' ? 2 : t.n2) : 0; }
+
+  function finish() {
+    var t = CUR.tool, pts = CUR.draft.slice();
+    CUR.brush = false;
+    if (t === 'sel' || !pts.length) { CUR.draft = []; CUR.preview = []; return; }
+    if (t === 'brush' && pts.length < 2) { CUR.draft = []; CUR.preview = []; return; }
+    var o = withDefaults({
+      id: newId(), type: t, pts: pts, text: '', glyph: CUR.glyph, pattern: CUR.pattern,
+      style: { c: '#185FA5', w: 2, dash: 0, fill: false }
+    });
+    snap();
+    LS.push({ o: o, b: '' });
+    CUR.draft = []; CUR.preview = [];
+    persist();
+    CUR.sel = o;
+    if (t === 'text') { setTool('sel'); CUR.sel = o; buildStyle(); OV.render(); editInline(o); }
+    else { buildStyle(); OV.render(); }
+  }
+
+  var inlineEl = null;
+  function editInline(o) {
+    if (inlineEl) inlineEl.remove();
+    var r = cv.getBoundingClientRect();
+    var P = resolve(o.pts[0]);
+    var inp = document.createElement('input');
+    inp.className = 'kdinline';
+    inp.value = o.text || '';
+    inp.style.left = Math.max(8, P.x - 40) + 'px';
+    inp.style.top = Math.max(4, P.y - 26) + 'px';
+    cv.parentNode.appendChild(inp);
+    inp.focus(); inp.select();
+    function commit() {
+      o.text = inp.value;
+      persist();
+      inp.remove(); inlineEl = null; OV.render(); buildStyle();
+    }
+    inp.onblur = commit;
+    inp.onkeydown = function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { e.preventDefault(); inp.onblur = null; inp.remove(); inlineEl = null; }
+      e.stopPropagation();
+    };
+    inlineEl = inp;
+    return r;
+  }
+
+  function hitShape(target) {
+    var el = target;
+    while (el && el !== svg) {
+      if (el.classList && el.classList.contains('kobj')) {
+        var id = el.getAttribute('data-id');
+        for (var i = 0; i < LS.length; i++) if (LS[i].o.id === id) return LS[i].o;
+      }
+      el = el.parentNode;
+    }
+    return null;
+  }
+
+  svg.addEventListener('mousemove', function (e) {
+    var pt = evPt(e);
+    if (CUR.tool !== 'sel') {
+      var i2 = Math.round(idxOf(pt));
+      if (i2 !== hover) { hover = i2; showInfo(chk(i2, 0, bars.length - 1)); }
+      if (CUR.draft.length) { CUR.preview = [pt]; OV.render(); }
+    }
+  });
+
+  svg.addEventListener('pointerdown', function (e) {
+    if (!bars.length) return;
+    e.preventDefault();
+    var pt = evPt(e);
+
+    if (CUR.tool === 'sel') {
+      /* 拖拽锚点 */
+      if (e.target.classList && e.target.classList.contains('kh')) {
+        if (!CUR.sel || CUR.sel.locked) return;
+        snap();
+        CUR.drag = { mode: 'handle', h: parseInt(e.target.getAttribute('data-h'), 10), orig: JSON.parse(JSON.stringify(CUR.sel.pts)) };
+        svg.setPointerCapture(e.pointerId);
+        return;
+      }
+      var o = hitShape(e.target);
+      if (o) {
+        CUR.sel = o; buildStyle(); OV.render();
+        if (!o.locked) {
+          snap();
+          CUR.drag = { mode: 'move', o: o, start: pt, orig: JSON.parse(JSON.stringify(o.pts)) };
+          svg.setPointerCapture(e.pointerId);
+        }
+      } else {
+        CUR.sel = null; buildStyle(); OV.render();
+      }
+      return;
+    }
+
+    /* 画笔 */
+    if (CUR.tool === 'brush') {
+      CUR.draft = [pt];
+      CUR.brush = true;
+      svg.setPointerCapture(e.pointerId);
+      return;
+    }
+
+    CUR.draft.push(pt);
+    var nd = need();
+    if (nd > 0 && CUR.draft.length >= nd) finish();
+    else OV.render();
+  });
+
+  svg.addEventListener('pointermove', function (e) {
+    if (CUR.brush && CUR.draft.length) {
+      var bp = evPt(e);
+      var lp = CUR.draft[CUR.draft.length - 1];
+      if (Math.abs(bp.i - lp.i) > 0.05 || Math.abs(bp.p - lp.p) > 1e-9) {
+        CUR.draft.push(bp);
+        OV.render();
+      }
+      return;
+    }
+    if (!CUR.drag) return;
+    var pt = evPt(e);
+    if (CUR.drag.mode === 'move') {
+      var o = CUR.drag.o;
+      var d0 = CUR.drag.orig;
+      var dI = pt.i - CUR.drag.start.i, dP = pt.p - CUR.drag.start.p;
+      o.pts = d0.map(function (q) {
+        var ni = q.i + dI;
+        var k = Math.round(ni);
+        return { i: ni, p: q.p + dP, d: (k >= 0 && k < bars.length) ? bars[k][0] : null };
+      });
+    } else if (CUR.drag.mode === 'handle') {
+      var hh = CUR.drag.h, oo = CUR.sel;
+      oo.pts[hh] = { i: pt.i, p: pt.p, d: pt.d };
+    }
+    OV.render();
+  });
+
+  svg.addEventListener('pointerup', function (e) {
+    if (CUR.brush) { finish(); return; }
+    if (CUR.drag) { CUR.drag = null; persist(); }
+  });
+  svg.addEventListener('pointercancel', function () {
+    CUR.brush = false; CUR.drag = null; CUR.draft = []; OV.render();
+  });
+
+  svg.addEventListener('dblclick', function (e) {
+    var o = hitShape(e.target);
+    if (!o) return;
+    if (o.type === 'text' || o.type === 'arrow' || o.type === 'marker' || o.type === 'rect' ||
+      o.type === 'supply' || o.type === 'pattern') {
+      CUR.sel = o; buildStyle(); OV.render();
+      var inp = document.getElementById('kdtext');
+      if (inp) { inp.focus(); inp.select(); }
+      else {
+        var v = window.prompt('文字内容', o.text || '');
+        if (v != null) { snap(); o.text = v; persist(); OV.render(); }
+      }
+    }
+  });
+
+  /* ==================== 周期 / 打开关闭 ==================== */
+  function render(p) {
+    per = p;
+    bars = (KD[sym] && KD[sym][p]) || [];
+    var btns = tabs.getElementsByTagName('button');
+    for (var i = 0; i < btns.length; i++) btns[i].className = btns[i].getAttribute('data-p') === p ? 'on' : '';
+    hover = -1;
+    DM = {};
+    for (var j = 0; j < bars.length; j++) DM[bars[j][0]] = j;
+    loadLS();
+    CUR.sel = null; CUR.draft = []; CUR.preview = [];
+    draw();
+    buildStyle();
+  }
+
+  window.openK = function (s) {
+    if (!KD[s]) return;
+    sym = s;
+    titleEl.textContent = s;
+    subEl.textContent = (KD[s].name || '') + (KD[s].desc ? ' · ' + KD[s].desc : '');
+    liveNote.textContent = KD[s].live ? '最后一根为今日盘中（实时价合成），其余为已收盘。' : '';
+    mask.className = 'kmask on';
+    document.body.style.overflow = 'hidden';
+    setTool('sel');
+    render('d');
+  };
+
+  function closeK() {
+    mask.className = 'kmask';
+    document.body.style.overflow = '';
+    sym = null;
+  }
+  window.closeK = closeK;
+
+  tabs.onclick = function (e) {
+    var t = e.target;
+    if (t && t.tagName === 'BUTTON') render(t.getAttribute('data-p'));
+  };
+  document.getElementById('kx').onclick = closeK;
+  mask.onclick = function (e) { if (e.target === mask) closeK(); };
+
+  document.addEventListener('keydown', function (e) {
+    if (mask.className.indexOf('on') < 0) return;
+    var tag = (e.target && e.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+    if (e.key === 'Escape') {
+      if (CUR.tool !== 'sel') { setTool('sel'); e.preventDefault(); return; }
+      if (CUR.sel) { CUR.sel = null; buildStyle(); OV.render(); e.preventDefault(); return; }
+      closeK(); return;
+    }
+    if ((e.ctrlKey || e.metaKey) && (e.key === 'z' || e.key === 'Z')) { undo(); e.preventDefault(); return; }
+    if (e.key === 'Delete' || e.key === 'Backspace') { if (CUR.sel) { delSel(); e.preventDefault(); } return; }
+    var map = { v: 'sel', t: 'trend', r: 'ray', h: 'hline', n: 'vline', c: 'channel', m: 'measure', f: 'fib', a: 'arrow', x: 'text' };
+    var k = map[(e.key || '').toLowerCase()];
+    if (k && !e.ctrlKey && !e.metaKey) { setTool(k); e.preventDefault(); }
+  });
+
+  window.addEventListener('resize', function () { if (sym) draw(); });
+
+  /* ==================== 绑定表格行 ==================== */
+  function bindRows() {
+    var rows = document.querySelectorAll('tr[data-k]');
+    for (var r2 = 0; r2 < rows.length; r2++) {
+      (function (row) {
+        var s = row.getAttribute('data-k');
+        if (!KD[s]) {                       /* 没有该标的的 K 线 → 不做成可点，避免静默失败 */
+          row.className = (row.className || '').replace(/\bkrow\b/g, '');
+          row.style.cursor = 'default';
+          row.title = '该标的暂无 K 线数据（kline_fetch.py 未收录）';
+          return;
+        }
+        row.addEventListener('click', function () { window.openK(s); });
+      })(rows[r2]);
+    }
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', bindRows);
+  else bindRows();
+
+  loadDB();
+  buildTools();
+  buildCtx();
+})();
+</script>

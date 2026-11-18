@@ -1,0 +1,33 @@
+# 你的个人数据 —— 永远不要提交
+portfolio.json
+
+# 运行时生成的行情与报告（跑脚本会重新生成）
+daily_data.json
+live_quotes.json
+sector_data.json
+cnbc_macro.json
+verify_report.json
+eq_gate.json
+kline_data.json
+idx_proxy.json
+chart.svg
+daily-brief.html
+
+# 保留的配置
+!portfolio.example.json
+!targets.json
+!drawdown_policy.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+envs/
+.venv/
+
+# 编辑器与系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+*.log

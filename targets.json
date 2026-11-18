@@ -1,0 +1,47 @@
+{
+  "_note": "目标权重唯一来源。改这里，战报/方案/月度开关都跟着变，避免多处硬编码不一致。",
+  "_approved": "2026-11-17",
+  "_rationale": {
+    "SPYM": "核心宽基。74% = 100 - QQQM15 - VXUS5 - 现金6。2026-11-17 现金由 10% 降至 6%，省出的 4pp 归 SPYM",
+    "QQQM": "科技敞口。beta 1.29，按杠杆管不按单仓管（上限 20%）",
+    "VXUS": "非美。目标 5%，不主动卖，靠新钱不补 + 自然漂移到 5%",
+    "CASH": "下限 6%：SPYM 一手零头约 3.9% + 全年手续费约 0.9% + 应急约 1.2%。原 10% 里的「回调档弹药 4%」已废止——实测从未动用（11/05 跌 4.38%、11/16 跌 1.9%，现金均未动），且与「跌 10% 减半仓」互斥"
+  },
+  "targets": {
+    "SPYM": 74,
+    "QQQM": 15,
+    "VXUS": 5,
+    "CASH": 6
+  },
+  "limits": {
+    "qqqm_max": 20,
+    "single_satellite_max": 10,
+    "leverage_max": 0,
+    "rebalance_band_pp": 5,
+    "min_trade_new": 300,
+    "min_trade_add": 150,
+    "single_stock_risk_contrib_max": 25,
+    "total_stock_risk_contrib_max": 35
+  },
+  "benchmark": {
+    "type": "cash_adjusted",
+    "formula": "SPYM 收益 × 股权占比",
+    "tolerance_pp": 0.5
+  },
+  "_constraints": {
+    "fractional": {
+      "SPYM": false,
+      "QQQM": true,
+      "VXUS": true
+    },
+    "note": "SPYM 只买整股 → 1 股约等于净值 5%，目标权重只能落在约 5pp 的网格上，因此容差放宽到 ±5pp"
+  },
+  "_cash_policy": {
+    "floor": 6,
+    "operational_band": [
+      6,
+      9
+    ],
+    "note": "硬下限 6%，实操 6–9%。6% 的构成：SPYM 一手零头（约 3.9%，买整股必须留）+ 全年手续费（约 0.9%）+ 应急（约 1.2%）。不再包含「回调档弹药」——2026-11-17 废止：数学上即使每次都完美抄在 -25% 底部，10% 现金 20 年仍净亏约 7.5 万美元（拖累 -9.99 万 vs 抄底收益 +2.53 万）。现金的真实作用是流动性（不在最坏时点被迫卖出），不是收益。总资产过 $6,372 后改放货币基金（3.65%），可挽回约 4 万美元"
+  }
+}

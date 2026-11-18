@@ -1,0 +1,74 @@
+{
+  "_readme": "复制成 portfolio.json 再改。所有数字都是虚构的示例值，请全部替换成你自己的。",
+  "as_of": "2026-11-18",
+  "currency": "USD",
+  "positions": {
+    "SPYM": 30,
+    "QQQM": 1.94,
+    "VXUS": 2.2
+  },
+  "cash": 210.0,
+  "_prev_note": "positions_prev / cash_prev = 上一个交易日收盘时的状态，用来算当日涨跌。没成交时与上面相同。",
+  "positions_prev": {
+    "SPYM": 30,
+    "QQQM": 1.94,
+    "VXUS": 2.2
+  },
+  "cash_prev": 210.0,
+  "_today_note": "今天到账的入金（没有就填 0）；今天的成交写进 today_trades，没有就留空数组。",
+  "deposit_today": 0,
+  "today_trades": [],
+  "fee_per_trade": 1.88,
+  "closed_positions": {
+    "RAM": {
+      "qty": 10,
+      "cost": 20.0,
+      "exit": 18.0,
+      "fee": 1.88,
+      "date": "2026-01-15",
+      "stop": 19.0,
+      "take": 26.0
+    },
+    "METU": {
+      "qty": 10,
+      "cost": 30.0,
+      "exit": 27.0,
+      "fee": 1.88,
+      "date": "2026-02-20",
+      "stop": 28.0,
+      "take": 40.0,
+      "exit_date": "02/20"
+    }
+  },
+  "watchlist": [
+    "NVDA",
+    "MU",
+    "META",
+    "SNDK",
+    "WDC",
+    "STX",
+    "TSLA"
+  ],
+  "benchmarks": [
+    "SPY",
+    "QQQ",
+    "IWM",
+    "SOXX",
+    "SMH",
+    "DIA",
+    "TLT",
+    "GLD"
+  ],
+  "rebalance": {
+    "date": "01/05",
+    "sym": "SPYM",
+    "qty": 5,
+    "px": 80.0,
+    "fee": 1.88,
+    "cash_from": 1000.0,
+    "cash_to": 600.0,
+    "shares_from": 15,
+    "shares_to": 20,
+    "close": 79.5
+  }
+}
